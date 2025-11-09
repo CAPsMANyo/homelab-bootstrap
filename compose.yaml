@@ -1,0 +1,169 @@
+services:
+  traefik:
+    image: traefik:${TRAEFIK_VERSION:-v3.2.3}
+    container_name: traefik
+    restart: unless-stopped
+    networks:
+      - proxy
+    ports:
+      - "8022:8022"
+      - ${TRAEFIK_IP}:443:443
+      - ${TRAEFIK_IP}:8443:8443
+    volumes:
+      - ./traefik/conf/traefik.yml:/etc/traefik/traefik.yml:ro
+      - ./traefik/acme/acme.json:/etc/traefik/acme.json
+      - ./traefik/acme/acme-staging.json:/etc/traefik/acme-staging.json
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      - TRAEFIK_CERTIFICATESRESOLVERS_LETSENCRYPT_ACME_EMAIL=${ACME_EMAIL}
+      - TRAEFIK_CERTIFICATESRESOLVERS_LETSENCRYPT_STAGING_ACME_EMAIL=${ACME_EMAIL}
+      - CF_DNS_API_TOKEN=${CF_DNS_API_TOKEN}
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    healthcheck:
+      test: ["CMD", "traefik", "healthcheck", "--ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    labels:
+      - komodo.skip=true
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+      - traefik.http.services.traefik.loadbalancer.server.port=8080
+      - traefik.http.routers.dashboard.rule=Host(`traefik.${DOMAIN}`)
+      - traefik.http.routers.dashboard.entrypoints=websecure-int
+      - traefik.http.routers.dashboard.tls.certresolver=letsencrypt-staging
+      - traefik.http.routers.dashboard.tls.domains[0].main=${DOMAIN}
+      - traefik.http.routers.dashboard.tls.domains[0].sans=*.${DOMAIN}
+      - traefik.http.routers.dashboard.tls=true
+      - traefik.http.routers.dashboard.tls.certresolver=letsencrypt
+      - traefik.http.routers.dashboard.service=api@internal
+      - traefik.http.routers.dashboard.middlewares=security-headers
+      - traefik.http.middlewares.security-headers.headers.sslRedirect=true
+      - traefik.http.middlewares.security-headers.headers.stsSeconds=31536000
+      - traefik.http.middlewares.security-headers.headers.stsIncludeSubdomains=true
+      - traefik.http.middlewares.security-headers.headers.stsPreload=true
+      - traefik.http.middlewares.security-headers.headers.forceSTSHeader=true
+      - traefik.http.middlewares.security-headers.headers.frameDeny=true
+      - traefik.http.middlewares.security-headers.headers.contentTypeNosniff=true
+      - traefik.http.middlewares.security-headers.headers.browserXssFilter=true
+      - traefik.http.middlewares.security-headers.headers.referrerPolicy=same-origin
+      - traefik.http.middlewares.security-headers.headers.customFrameOptionsValue=SAMEORIGIN
+      - traefik.http.middlewares.unifiHeaders.headers.customRequestHeaders.Authorization=
+      - traefik.http.middlewares.ratelimit.rateLimit.average=100
+      - traefik.http.middlewares.ratelimit.rateLimit.burst=50
+      - traefik.http.middlewares.ratelimit.rateLimit.period=1s
+
+
+  #=======================#
+  # KOMODO SERVICES       #
+  #=======================#
+
+  komodo-mongo:
+    image: mongo:7
+    container_name: komodo-mongo
+    command: --quiet --wiredTigerCacheSizeGB 0.25
+    restart: unless-stopped
+    networks:
+      - komodo
+    volumes:
+      - komodo-mongo-data:/data/db
+      - komodo-mongo-config:/data/configdb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${KOMODO_DB_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${KOMODO_DB_PASSWORD}
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  komodo-core:
+    image: ghcr.io/moghtech/komodo-core:${KOMODO_VERSION:-latest}
+    container_name: komodo-core
+    restart: unless-stopped
+    depends_on:
+      komodo-mongo:
+        condition: service_healthy
+    networks:
+      - proxy
+      - komodo
+    volumes:
+      - ..:/docker-stacks
+    environment:
+      KOMODO_DATABASE_ADDRESS: komodo-mongo:27017
+      KOMODO_DATABASE_USERNAME: ${KOMODO_DB_USERNAME}
+      KOMODO_DATABASE_PASSWORD: ${KOMODO_DB_PASSWORD}
+      KOMODO_HOST: ${KOMODO_HOST:-https://komodo.${DOMAIN}}
+      KOMODO_TITLE: ${KOMODO_TITLE:-Komodo}
+      KOMODO_FIRST_SERVER: ${KOMODO_FIRST_SERVER:-https://komodo-periphery:8120}
+      KOMODO_FIRST_SERVER_NAME: ${KOMODO_FIRST_SERVER_NAME:-Local}
+      KOMODO_PASSKEY: ${KOMODO_PASSKEY}
+      KOMODO_WEBHOOK_SECRET: ${KOMODO_WEBHOOK_SECRET:-asdf1234}
+      KOMODO_JWT_SECRET: ${KOMODO_JWT_SECRET}
+      KOMODO_JWT_TTL: ${KOMODO_JWT_TTL:-1-day}
+      KOMODO_LOCAL_AUTH: ${KOMODO_LOCAL_AUTH:-true}
+      KOMODO_INIT_ADMIN_USERNAME: ${KOMODO_INIT_ADMIN_USERNAME:-admin}
+      KOMODO_INIT_ADMIN_PASSWORD: ${KOMODO_INIT_ADMIN_PASSWORD}
+      KOMODO_DISABLE_USER_REGISTRATION: ${KOMODO_DISABLE_USER_REGISTRATION:-true}
+      KOMODO_ENABLE_NEW_USERS: ${KOMODO_ENABLE_NEW_USERS:-false}
+      KOMODO_MONITORING_INTERVAL: ${KOMODO_MONITORING_INTERVAL:-15-sec}
+      KOMODO_RESOURCE_POLL_INTERVAL: ${KOMODO_RESOURCE_POLL_INTERVAL:-1-hr}
+      KOMODO_LOGGING_PRETTY: ${KOMODO_LOGGING_PRETTY:-false}
+      TZ: ${TZ:-America/Denver}
+    healthcheck:
+      disable: true
+    labels:
+      - komodo.skip=true
+      - traefik.enable=true
+      - traefik.docker.network=proxy
+      - traefik.http.services.komodo.loadbalancer.server.port=9120
+      - traefik.http.routers.komodo.entrypoints=websecure-int
+      - traefik.http.routers.komodo.tls=true
+      - traefik.http.routers.komodo.tls.certresolver=letsencrypt
+      - traefik.http.routers.komodo.rule=Host(`komodo.${DOMAIN}`)
+      - traefik.http.routers.komodo.service=komodo
+
+  komodo-periphery:
+    image: ghcr.io/moghtech/komodo-periphery:${KOMODO_VERSION:-latest}
+    container_name: komodo-periphery
+    restart: unless-stopped
+    networks:
+      - komodo
+    environment:
+      PERIPHERY_PASSKEYS: ${KOMODO_PASSKEY}
+      PERIPHERY_ROOT_DIRECTORY: ${PERIPHERY_ROOT_DIRECTORY:-/etc/komodo}
+      PERIPHERY_DISABLE_TERMINALS: ${PERIPHERY_DISABLE_TERMINALS:-false}
+      PERIPHERY_SSL_ENABLED: ${PERIPHERY_SSL_ENABLED:-true}
+      PERIPHERY_LOGGING_PRETTY: ${PERIPHERY_LOGGING_PRETTY:-false}
+      TZ: ${TZ:-America/Denver}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /proc:/proc
+      - ${PERIPHERY_ROOT_DIRECTORY:-/etc/komodo}:${PERIPHERY_ROOT_DIRECTORY:-/etc/komodo}
+      - ..:/docker-stacks
+
+#=======================#
+# VOLUMES               #
+#=======================#
+
+volumes:
+  komodo-mongo-data:
+    external: true
+  komodo-mongo-config:
+    external: true
+
+
+#=======================#
+# NETWORKS              #
+#=======================#
+
+networks:
+  komodo:
+    external: true
+  proxy:
+    external: true
