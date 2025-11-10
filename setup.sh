@@ -40,6 +40,7 @@ echo "Step 2: Generating secure secrets"
 echo "-----------------------------------"
 
 # Generate secure random values
+REDIS_PASSWORD=$(openssl rand -base64 32)
 KOMODO_DB_PASSWORD=$(openssl rand -base64 24)
 KOMODO_PASSKEY=$(openssl rand -base64 32)
 KOMODO_WEBHOOK_SECRET=$(openssl rand -base64 32)
@@ -54,6 +55,7 @@ echo "Step 3: Writing secrets to .env file"
 echo "-----------------------------------"
 
 # Update root .env file with generated secrets
+sed -i "s|^REDIS_PASSWORD=.*|REDIS_PASSWORD=${REDIS_PASSWORD}|" .env
 sed -i "s|^KOMODO_DB_PASSWORD=.*|KOMODO_DB_PASSWORD=${KOMODO_DB_PASSWORD}|" .env
 sed -i "s|^KOMODO_PASSKEY=.*|KOMODO_PASSKEY=${KOMODO_PASSKEY}|" .env
 sed -i "s|^KOMODO_WEBHOOK_SECRET=.*|KOMODO_WEBHOOK_SECRET=${KOMODO_WEBHOOK_SECRET}|" .env
@@ -75,23 +77,30 @@ else
     success "Created Docker network 'proxy'"
 fi
 
-# Create br9 network if it doesn't exist (optional)
-if docker network inspect br9 >/dev/null 2>&1; then
-    warning "Network 'br9' already exists, skipping"
+# Create the komodo network
+if docker network inspect komodo >/dev/null 2>&1; then
+    warning "Network 'komodo' already exists, skipping"
 else
-    docker network create br9 --subnet=${PROXY_SUBNET}
-    success "Created Docker network 'br9'"
+    docker network create komodo
+    success "Created Docker network 'komodo'"
 fi
 
 echo ""
 echo "Step 5: Creating Docker volumes"
 echo "-----------------------------------"
 
-if docker volume inspect komodo-data >/dev/null 2>&1; then
-    warning "Volume 'komodo-data' already exists, skipping"
+if docker volume inspect komodo-mongo-data >/dev/null 2>&1; then
+    warning "Volume 'komodo-mongo-data' already exists, skipping"
 else
-    docker volume create komodo-data
-    success "Created Docker volume 'komodo-data'"
+    docker volume create komodo-mongo-data
+    success "Created Docker volume 'komodo-mongo-data'"
+fi
+
+if docker volume inspect komodo-mongo-config >/dev/null 2>&1; then
+    warning "Volume 'komodo-mongo-config' already exists, skipping"
+else
+    docker volume create komodo-mongo-config
+    success "Created Docker volume 'komodo-mongo-config'"
 fi
 
 echo ""
@@ -116,13 +125,17 @@ echo "-----------------------------------"
 echo "Komodo Admin Password:"
 echo "  ${KOMODO_INIT_ADMIN_PASSWORD}"
 echo ""
+echo "Redis Password (for remote nodes):"
+echo "  ${REDIS_PASSWORD}"
+echo ""
 echo "⚠ IMPORTANT: Edit .env with your configuration:"
 echo "-----------------------------------"
 echo ""
 echo "Required values to set in .env:"
-echo "  - DOMAIN (currently: coddington.cc)"
+echo "  - DOMAIN (your domain name)"
 echo "  - ACME_EMAIL (your email address)"
 echo "  - CF_DNS_API_TOKEN (your Cloudflare API token)"
+echo "  - TRAEFIK_IP (IP address to bind Traefik ports)"
 echo ""
 echo "Optional values in .env:"
 echo "  - GIT_USERNAME (for git-based Komodo stacks)"
@@ -143,4 +156,8 @@ echo "  - Komodo UI: https://komodo.<your-domain>"
 echo ""
 echo "First login credentials:"
 echo "  Komodo    - Username: admin, Password: ${KOMODO_INIT_ADMIN_PASSWORD}"
+echo ""
+echo "For remote nodes using traefik-kop:"
+echo "  - Use REDIS_PASSWORD: ${REDIS_PASSWORD}"
+echo "  - Configure REDIS_ADDR to point to this host"
 echo ""
