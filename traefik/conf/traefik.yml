@@ -29,6 +29,9 @@ entryPoints:
   git-ssh:
     address: ":8022"
 
+  redis:
+    address: ":6379"
+
 # Server Transport
 serversTransport:
   insecureSkipVerify: true
@@ -42,6 +45,10 @@ providers:
   docker:
     endpoint: "unix:///var/run/docker.sock"
     exposedByDefault: false  # Only enable containers with traefik.enable=true
+
+  redis:
+    endpoints:
+      - "redis:6379"
 
 # Let's Encrypt Certificate Resolvers
 # Note: Email is set via ACME_EMAIL environment variable in .env
