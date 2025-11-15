@@ -58,7 +58,7 @@ services:
       - traefik.http.middlewares.ratelimit.rateLimit.burst=50
       - traefik.http.middlewares.ratelimit.rateLimit.period=1s
 
-  server:
+  forgejo:
     image: codeberg.org/forgejo/forgejo:13
     container_name: forgejo
     environment:
