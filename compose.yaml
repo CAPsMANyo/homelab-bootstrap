@@ -3,6 +3,7 @@ services:
     image: traefik:latest
     container_name: traefik
     restart: unless-stopped
+    user: 1000:1000
     networks:
       - proxy
     ports:
@@ -96,6 +97,7 @@ services:
   forgejo-db:
     image: postgres:14
     restart: always
+    user: 1000:1000
     container_name: forgejo-db
     environment:
       - POSTGRES_USER=forgejo
@@ -105,17 +107,25 @@ services:
       - forgejo
     volumes:
       - forgejo-db:/var/lib/postgresql/data
-      
+
+  docker-in-docker:
+    image: docker:dind
+    container_name: 'docker_dind'
+    privileged: 'true'
+    command: ['dockerd', '-H', 'tcp://0.0.0.0:2375', '--tls=false']
+    restart: 'unless-stopped'
+
   forgejo-runner:
     image: ghcr.io/capsmanyo/forgejo-runner:latest
     container_name: forgejo-runner
+    links:
+      - docker-in-docker
     environment:
       DOCKER_HOST: unix://docker-in-docker:2375
     # User without root privileges, but with access to `./data`.
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
       - forgejo-runner:/data
-    user: 1001:1001
+    user: 1000:1000
     networks:
       - forgejo
     restart: 'unless-stopped'
