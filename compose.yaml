@@ -125,6 +125,41 @@ services:
       - "traefik.http.routers.portainer.entrypoints=https"
       - "traefik.http.routers.portainer.tls=true"
       - "traefik.http.routers.portainer.service=portainer"
+ forgejo-runner:
+    image: ghcr.io/capsmanyo/homelab-runner:latest
+    container_name: forgejo-runner
+    environment:
+      DOCKER_HOST: unix://docker-in-docker:2375
+    # User without root privileges, but with access to `./data`.
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sockf
+    user: 1001:1001
+    volumes:
+      - forgejo-runner:/data
+    networks:
+      - forgejo
+    restart: 'unless-stopped'
+    command: '/bin/sh -c "while : ; do sleep 1 ; done ;"'
+
+  portainer:
+    container_name: portainer
+    image: portainer/portainer-ee:lts
+    restart: always
+    privileged: true
+    networks:
+      - proxy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer-data:/data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.services.portainer.loadbalancer.server.port=9443"
+      - "traefik.http.services.portainer.loadbalancer.server.scheme=https"
+      - "traefik.http.routers.portainer.rule=Host(`portainer.${DOMAIN}`)"
+      - "traefik.http.routers.portainer.entrypoints=https"
+      - "traefik.http.routers.portainer.tls=true"
+      - "traefik.http.routers.portainer.service=portainer"
 
   code-server:
     image: lscr.io/linuxserver/code-server:latest
@@ -150,12 +185,13 @@ services:
       - "traefik.http.routers.code.tls=true"
       - "traefik.http.routers.code.service=code"
 
-
 volumes:
   forgejo-data:
     external: true
   forgejo-db:
     external: true
+  forgejo-runner:
+    name: forgejo-runner
   portainer-data:
     external: true
   traefik-config:
