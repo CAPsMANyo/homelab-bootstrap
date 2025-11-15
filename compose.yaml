@@ -119,8 +119,11 @@ services:
     container_name: forgejo-runner
     links:
       - docker-in-docker
+    depends_on:
+      docker-in-docker:
+        condition: service_started
     environment:
-      DOCKER_HOST: unix://docker-in-docker:2375
+      DOCKER_HOST: tcp://docker-in-docker:2375
     # User without root privileges, but with access to `./data`.
     volumes:
       - forgejo-runner:/data
