@@ -126,7 +126,7 @@ services:
       - "traefik.http.routers.portainer.tls=true"
       - "traefik.http.routers.portainer.service=portainer"
       
-   forgejo-runner:
+  forgejo-runner:
     image: ghcr.io/capsmanyo/homelab-runner:latest
     container_name: forgejo-runner
     environment:
