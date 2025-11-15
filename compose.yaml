@@ -128,8 +128,8 @@ services:
     networks:
       - forgejo
     restart: 'unless-stopped'
-    #command: '/bin/sh -c "while : ; do sleep 1 ; done ;"'
-    command: '/bin/sh -c "sleep 5; forgejo-runner daemon"'
+    command: '/bin/sh -c "while : ; do sleep 1 ; done ;"'
+    #command: '/bin/sh -c "sleep 5; forgejo-runner daemon"'
     
   portainer:
     container_name: portainer
@@ -181,7 +181,7 @@ volumes:
   forgejo-db:
     external: true
   forgejo-runner:
-    name: forgejo-runner
+    external: true
   portainer-data:
     external: true
   traefik-config:
