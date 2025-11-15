@@ -1,6 +1,6 @@
 services:
   traefik:
-    image: traefik:${TRAEFIK_VERSION:-v3.2.3}
+    image: traefik:latest
     container_name: traefik
     restart: unless-stopped
     networks:
@@ -11,15 +11,13 @@ services:
       - ${TRAEFIK_IP}:443:443
       - ${TRAEFIK_IP}:8443:8443
     volumes:
-      - ./traefik/conf/traefik.yml:/etc/traefik/traefik.yml:ro
-      - ./traefik/acme/acme.json:/etc/traefik/acme.json
-      - ./traefik/acme/acme-staging.json:/etc/traefik/acme-staging.json
+      - traefik-config:/etc/traefik
+      - ./traefik.yml:/etc/traefik/traefik.yml:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
       - TRAEFIK_CERTIFICATESRESOLVERS_LETSENCRYPT_ACME_EMAIL=${ACME_EMAIL}
       - TRAEFIK_CERTIFICATESRESOLVERS_LETSENCRYPT_STAGING_ACME_EMAIL=${ACME_EMAIL}
       - CF_DNS_API_TOKEN=${CF_DNS_API_TOKEN}
-      - TRAEFIK_PROVIDERS_REDIS_PASSWORD=${REDIS_PASSWORD}
     logging:
       driver: "json-file"
       options:
@@ -37,7 +35,7 @@ services:
       - traefik.docker.network=proxy
       - traefik.http.services.traefik.loadbalancer.server.port=8080
       - traefik.http.routers.dashboard.rule=Host(`traefik.${DOMAIN}`)
-      - traefik.http.routers.dashboard.entrypoints=websecure-int
+      - traefik.http.routers.dashboard.entrypoints=https
       - traefik.http.routers.dashboard.tls.certresolver=letsencrypt-staging
       - traefik.http.routers.dashboard.tls.domains[0].main=${DOMAIN}
       - traefik.http.routers.dashboard.tls.domains[0].sans=*.${DOMAIN}
@@ -60,140 +58,111 @@ services:
       - traefik.http.middlewares.ratelimit.rateLimit.burst=50
       - traefik.http.middlewares.ratelimit.rateLimit.period=1s
 
-
-  #=======================#
-  # KOMODO SERVICES       #
-  #=======================#
-
-  komodo-mongo:
-    image: mongo:7
-    container_name: komodo-mongo
-    command: --quiet --wiredTigerCacheSizeGB 0.25
-    restart: unless-stopped
-    networks:
-      - komodo
-    volumes:
-      - komodo-mongo-data:/data/db
-      - komodo-mongo-config:/data/configdb
+  server:
+    image: codeberg.org/forgejo/forgejo:13
+    container_name: forgejo
     environment:
-      MONGO_INITDB_ROOT_USERNAME: ${KOMODO_DB_USERNAME}
-      MONGO_INITDB_ROOT_PASSWORD: ${KOMODO_DB_PASSWORD}
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  komodo-core:
-    image: ghcr.io/moghtech/komodo-core:${KOMODO_VERSION:-latest}
-    container_name: komodo-core
-    restart: unless-stopped
+      - USER_UID=1000
+      - USER_GID=1000
+      - FORGEJO__database__DB_TYPE=postgres
+      - FORGEJO__database__HOST=forgejo-db:5432
+      - FORGEJO__database__NAME=forgejo
+      - FORGEJO__database__USER=forgejo
+      - FORGEJO__database__PASSWD=forgejo
+    restart: always
+    networks:
+      - forgejo
+      - proxy
+    volumes:
+      - forgejo-data:/data
+      - /etc/timezone:/etc/timezone:ro
+      - /etc/localtime:/etc/localtime:ro
     depends_on:
-      komodo-mongo:
-        condition: service_healthy
+      - forgejo-db
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      # HTTP router for web UI
+      - "traefik.http.services.git.loadbalancer.server.port=3000"
+      - "traefik.http.routers.git.rule=Host(`git.${DOMAIN}`)"
+      - "traefik.http.routers.git.entrypoints=https"
+      - "traefik.http.routers.git.tls=true"
+      # TCP router for SSH
+      - "traefik.tcp.routers.git-ssh.rule=HostSNI(`*`)"
+      - "traefik.tcp.routers.git-ssh.entrypoints=git-ssh"
+      - "traefik.tcp.routers.git-ssh.service=git-ssh"
+      - "traefik.tcp.services.git-ssh.loadbalancer.server.port=22"
+
+  forgejo-db:
+    image: postgres:14
+    restart: always
+    container_name: forgejo-db
+    environment:
+      - POSTGRES_USER=forgejo
+      - POSTGRES_PASSWORD=forgejo
+      - POSTGRES_DB=forgejo
+    networks:
+      - forgejo
+    volumes:
+      - forgejo-db:/var/lib/postgresql/data
+
+  portainer:
+    container_name: portainer
+    image: portainer/portainer-ee:latest
+    restart: always
+    privileged: true
     networks:
       - proxy
-      - komodo
-    volumes:
-      - ..:/docker-stacks
-    environment:
-      KOMODO_DATABASE_ADDRESS: komodo-mongo:27017
-      KOMODO_DATABASE_USERNAME: ${KOMODO_DB_USERNAME}
-      KOMODO_DATABASE_PASSWORD: ${KOMODO_DB_PASSWORD}
-      KOMODO_HOST: ${KOMODO_HOST:-https://komodo.${DOMAIN}}
-      KOMODO_TITLE: ${KOMODO_TITLE:-Komodo}
-      KOMODO_FIRST_SERVER: ${KOMODO_FIRST_SERVER:-https://komodo-periphery:8120}
-      KOMODO_FIRST_SERVER_NAME: ${KOMODO_FIRST_SERVER_NAME:-Local}
-      KOMODO_PASSKEY: ${KOMODO_PASSKEY}
-      KOMODO_WEBHOOK_SECRET: ${KOMODO_WEBHOOK_SECRET:-asdf1234}
-      KOMODO_JWT_SECRET: ${KOMODO_JWT_SECRET}
-      KOMODO_JWT_TTL: ${KOMODO_JWT_TTL:-1-day}
-      KOMODO_LOCAL_AUTH: ${KOMODO_LOCAL_AUTH:-true}
-      KOMODO_INIT_ADMIN_USERNAME: ${KOMODO_INIT_ADMIN_USERNAME:-admin}
-      KOMODO_INIT_ADMIN_PASSWORD: ${KOMODO_INIT_ADMIN_PASSWORD}
-      KOMODO_DISABLE_USER_REGISTRATION: ${KOMODO_DISABLE_USER_REGISTRATION:-true}
-      KOMODO_ENABLE_NEW_USERS: ${KOMODO_ENABLE_NEW_USERS:-false}
-      KOMODO_MONITORING_INTERVAL: ${KOMODO_MONITORING_INTERVAL:-15-sec}
-      KOMODO_RESOURCE_POLL_INTERVAL: ${KOMODO_RESOURCE_POLL_INTERVAL:-1-hr}
-      KOMODO_LOGGING_PRETTY: ${KOMODO_LOGGING_PRETTY:-false}
-      TZ: ${TZ:-America/Denver}
-    healthcheck:
-      disable: true
-    labels:
-      - komodo.skip=true
-      - traefik.enable=true
-      - traefik.docker.network=proxy
-      - traefik.http.services.komodo.loadbalancer.server.port=9120
-      - traefik.http.routers.komodo.entrypoints=websecure-int
-      - traefik.http.routers.komodo.tls=true
-      - traefik.http.routers.komodo.tls.certresolver=letsencrypt
-      - traefik.http.routers.komodo.rule=Host(`komodo.${DOMAIN}`)
-      - traefik.http.routers.komodo.service=komodo
-
-  komodo-periphery:
-    image: ghcr.io/moghtech/komodo-periphery:${KOMODO_VERSION:-latest}
-    container_name: komodo-periphery
-    restart: unless-stopped
-    networks:
-      - komodo
-    environment:
-      PERIPHERY_PASSKEYS: ${KOMODO_PASSKEY}
-      PERIPHERY_ROOT_DIRECTORY: ${PERIPHERY_ROOT_DIRECTORY:-/etc/komodo}
-      PERIPHERY_DISABLE_TERMINALS: ${PERIPHERY_DISABLE_TERMINALS:-false}
-      PERIPHERY_SSL_ENABLED: ${PERIPHERY_SSL_ENABLED:-true}
-      PERIPHERY_LOGGING_PRETTY: ${PERIPHERY_LOGGING_PRETTY:-false}
-      TZ: ${TZ:-America/Denver}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      - /proc:/proc
-      - ${PERIPHERY_ROOT_DIRECTORY:-/etc/komodo}:${PERIPHERY_ROOT_DIRECTORY:-/etc/komodo}
-      - ..:/docker-stacks
+      - portainer-data:/data
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.services.portainer.loadbalancer.server.port=9443"
+      - "traefik.http.services.portainer.loadbalancer.server.scheme=https"
+      - "traefik.http.routers.portainer.rule=Host(`portainer.${DOMAIN}`)"
+      - "traefik.http.routers.portainer.entrypoints=https"
+      - "traefik.http.routers.portainer.tls=true"
+      - "traefik.http.routers.portainer.service=portainer"
 
-  #=======================#
-  # REDIS                 #
-  #=======================#
-
-  redis:
-    image: redis:${REDIS_VERSION:-alpine}
-    container_name: redis
+  code-server:
+    image: lscr.io/linuxserver/code-server:latest
+    container_name: code-server
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=${TZ}
+      - DEFAULT_WORKSPACE=/config/workspace #optional
+      - PWA_APPNAME=code-server #optional
+    volumes:
+      - ./code-server:/config
+      - ../:/config/workspace
     restart: unless-stopped
-    command: redis-server --requirepass ${REDIS_PASSWORD} --appendonly yes
     networks:
       - proxy
-    volumes:
-      - redis-data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "--raw", "incr", "ping"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
     labels:
-      - komodo.skip=true
-      - traefik.enable=true
-      - traefik.docker.network=proxy
-      - traefik.tcp.routers.redis.rule=HostSNI(`*`)
-      - traefik.tcp.routers.redis.entrypoints=redis
-      - traefik.tcp.routers.redis.service=redis
-      - traefik.tcp.services.redis.loadbalancer.server.port=6379
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.services.code.loadbalancer.server.port=8443"
+      - "traefik.http.routers.code.rule=Host(`code.${DOMAIN}`)"
+      - "traefik.http.routers.code.entrypoints=https"
+      - "traefik.http.routers.code.tls=true"
+      - "traefik.http.routers.code.service=code"
 
-#=======================#
-# VOLUMES               #
-#=======================#
 
 volumes:
-  komodo-mongo-data:
+  forgejo-data:
     external: true
-  komodo-mongo-config:
+  forgejo-db:
     external: true
-  redis-data:
-
-
-#=======================#
-# NETWORKS              #
-#=======================#
+  portainer-data:
+    external: true
+  traefik-config:
+    external: true
 
 networks:
-  komodo:
-    external: true
   proxy:
     external: true
+  forgejo:
+    external: false
