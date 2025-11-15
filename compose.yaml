@@ -133,10 +133,9 @@ services:
       DOCKER_HOST: unix://docker-in-docker:2375
     # User without root privileges, but with access to `./data`.
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sockf
-    user: 1001:1001
-    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
       - forgejo-runner:/data
+    user: 1001:1001
     networks:
       - forgejo
     restart: 'unless-stopped'
