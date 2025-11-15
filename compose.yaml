@@ -107,7 +107,7 @@ services:
       - forgejo-db:/var/lib/postgresql/data
       
   forgejo-runner:
-    image: ghcr.io/capsmanyo/homelab-runner:latest
+    image: ghcr.io/capsmanyo/forgejo-runner:latest
     container_name: forgejo-runner
     environment:
       DOCKER_HOST: unix://docker-in-docker:2375
