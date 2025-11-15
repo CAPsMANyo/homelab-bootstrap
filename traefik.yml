@@ -1,0 +1,66 @@
+# Traefik Static Configuration
+# Only contains settings that cannot be defined via Docker labels
+
+global:
+  checkNewVersion: false
+  sendAnonymousUsage: false
+
+ping:
+  entryPoint: "traefik"
+
+# Entry Points - Port configuration
+entryPoints:
+  traefik:
+    address: ":8080"
+
+  https:
+    address: ":443"
+    forwardedHeaders:
+      trustedIPs:
+        - "10.10.9.0/24"
+        - "172.16.0.0/16"
+
+  git-ssh:
+    address: ":8022"
+
+# Server Transport
+serversTransport:
+  insecureSkipVerify: true
+
+# API Dashboard
+api:
+  dashboard: true
+
+# Providers
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    exposedByDefault: false  # Only enable containers with traefik.enable=true
+
+# Let's Encrypt Certificate Resolvers
+# Note: Email is set via ACME_EMAIL environment variable in .env
+certificatesResolvers:
+  letsencrypt:
+    acme:
+      # email set via environment variable
+      storage: /etc/traefik/acme.json
+      caServer: "https://acme-v02.api.letsencrypt.org/directory"
+      dnsChallenge:
+        provider: cloudflare
+        delayBeforeCheck: "120"
+        resolvers:
+          - 1.1.1.1
+          - 1.0.0.1
+
+  letsencrypt-staging:
+    acme:
+      # email set via environment variable
+      storage: /etc/traefik/acme-staging.json
+      caServer: "https://acme-staging-v02.api.letsencrypt.org/directory"
+      dnsChallenge:
+        provider: cloudflare
+        delayBeforeCheck: "120"
+        resolvers:
+          - 1.1.1.1
+          - 1.0.0.1
+
